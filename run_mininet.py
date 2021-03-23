@@ -32,17 +32,17 @@ class DumbbellTopo(Topo):
         for h in range(n):
             host = self.addHost('h%s' % h, cpu=.5 / n)
             self.addLink(host, switch1)
+	    if h == 0:
+                self.addLink(host, switch1)
             receiver = self.addHost('r%s' % h, cpu=1 / n)
             self.addLink(receiver, switch3)
+	    if h == 0:
+                self.addLink(receiver, switch3)
 
 def finally_mininet(qdisc, net, hostlist):
     print ('remove ifb and act_mirred kernel module')
     os.system('rmmod ifb')
     os.system('rmmod act_mirred')
-
-    print ('Disable bbrv2 printk debugging')
-    os.system('echo 0 > /sys/module/tcp_bbr2/parameters/debug_port_mask')
-    os.system('echo 0 > /sys/module/tcp_bbr2/parameters/debug_with_printk')
 
 def setup_htb_and_qdisc(aqm_switch, qdisc, netem_switch, rate, delay, limit, loss):
     #os.system('rmmod ifb')
@@ -155,6 +155,26 @@ def configure_switch(net, delay=0, limit=1000, rate = 10, loss=0, qdisc='', dire
 
     time.sleep(0.2)
 
+def enable_mptcp():
+    os.system('sysctl -w net.mptcp.mptcp_enabled=1') # MPTCP host
+    os.system('sysctl -w net.mptcp.mptcp_path_manager=fullmesh') # MPTCP host
+    os.system('sysctl -w net.mptcp.mptcp_checksum=1')
+    # CCA variants & Scheduler variants
+    os.system('sysctl -w net.mptcp.mptcp_scheduler=default') # MPTCP host
+    #os.system('sysctl -w net.ipv4.tcp_congestion_control=mpcubic') # MPTCP host
+
+    time.sleep(1)
+
+#os.system('sudo modprobe tcp_probe full=1 port=5000')
+#   os.system('sudo chmod 444 /proc/net/tcpprobe')
+#os.system('timeout '+str(duration + 5)+'s cat /proc/net/tcpprobe > /home/mptcp/Desktop/probe/tcpprobe_FQ4_log.xls &')
+
+    #os.system('sudo sysctl -w net.ipv4.tcp_rmem="4096 87380 524888"') # 20Mbps
+    #os.system('sudo sysctl -w net.ipv4.tcp_rmem="4096 87380 147456"')
+    #os.system('sudo sysctl -w net.ipv4.tcp_rmem="4096 87380 1048576"')
+    #os.system('sudo sysctl -w net.ipv4.tcp_rmem="4096 87380 436900"')
+    
+
 def enable_ecn_in_bbr2(host):
     host.cmd('sysctl -w net.ipv4.tcp_ecn=1')
     host.cmd('echo 1 > /sys/module/tcp_bbr2/parameters/ecn_enable')
@@ -186,18 +206,39 @@ def configure_host(net, hostlist, bbr2_ecn, duration=10, interval=0):
 #       else :
         send.cmd('tc qdisc add dev {}-eth0 root netem delay 0.1ms'.format(send))
 
-        send.setIP('10.1.0.{}/8'.format(i))
-        recv.setIP('10.2.0.{}/8'.format(i))
+	if i == 0:
+            send.setIP('10.0.{}.1/24'.format(i))
+            recv.setIP('10.0.{}.3/24'.format(i))
+	    send.cmd('ifconfig h0-eth1 10.0.1.1/24')
+	    recv.cmd('ifconfig r0-eth1 10.0.1.3/24')
+	
+    	    send.cmd("ip rule add from 10.0.0.1 table 1")
+            send.cmd("ip rule add from 10.0.1.1 table 2")
 
-        send.cmd('ip route change 10.0.0.0/8 dev {}-eth0 congctl {}'.format(send,cca))
+            send.cmd("ip route add 10.0.0.0/24 dev h0-eth0 scope link table 1")
+            send.cmd("ip route add default via 10.0.0.1 dev h0-eth0 table 1")
+            send.cmd("ip route add 10.0.1.0/24 dev h0-eth1 scope link table 2")
+            send.cmd("ip route add default via 10.0.1.1 dev h0-eth1 table 2")
+ 
+            recv.cmd("ip rule add from 10.0.0.3 table 1")
+            recv.cmd("ip rule add from 10.0.1.3 table 2")
+
+            recv.cmd("ip route add 10.0.0.0/24 dev r0-eth0 scope link table 1")
+            recv.cmd("ip route add default via 10.0.0.3 dev r0-eth0 table 1")
+            recv.cmd("ip route add 10.0.1.0/24 dev r0-eth1 scope link table 2")
+            recv.cmd("ip route add default via 10.0.1.3 dev r0-eth1 table 2")
+
+	else:
+            send.setIP('10.0.{}.1/24'.format(i+1))
+            recv.setIP('10.0.{}.3/24'.format(i+1))
+	
+#send.cmd('ip route change 10.0.0.0/8 dev {}-eth0 congctl {}'.format(send,cca))
         recv.cmd('tc qdisc add dev {}-eth0 root netem delay {}'.format(recv,flow_delay))
+	if i==0:
+	    recv.cmd('tc qdisc add dev {}-eth1 root netem delay {}'.format(recv, flow_delay))
 #send.cmd('tcpdump -i {}-eth0 -n tcp -w {}/{}.pacp -s 88 &'.format(send, output_dir, send))
 
-        if cca == "bbr2":
-            send.cmd('dmesg -w | grep {} > {} &'.format(recv.IP(), os.path.join(output_dir, 'bbr2_{}.xls'.format(send.IP()))))
 
-
-        print(send.cmd('tc qdisc show dev {}-eth0'.format(send)))
         print ('{} -> ECN : {}'.format(hostlist[i], bbr2_ecn))
         if int(bbr2_ecn) == 1:
             print (" --> Enable ecn in bbr2 host : {}".format(send)),
@@ -211,12 +252,16 @@ def configure_host(net, hostlist, bbr2_ecn, duration=10, interval=0):
         print ('')
 
     rest_duration=int(duration)
+    time.sleep (2)
 
     for i in range(len(hostlist)):
+        tmp = hostlist[i].split(':')
+        cca = tmp[0]
         send = net.get('h{}'.format(i))
         recv = net.get('r{}'.format(i))
-        print ("Send Application")
-        send.cmd('iperf -c {} -p 10000 -t {} &'.format(recv.IP(), duration))
+        print ("Send Application with {}".format(cca))
+#send.cmd('iperf -c {} -Z {} -p 10000 -t {} &'.format(recv.IP(),cca, duration))
+        send.cmd('iperf -c {} -p 10000 -Z {} -t {} &'.format( recv.IP(), cca ,duration))
         try:
             time.sleep(float(interval))
         except (KeyboardInterrupt, Exception ) as e :
@@ -232,7 +277,7 @@ def configure_host(net, hostlist, bbr2_ecn, duration=10, interval=0):
         if int(bbr2_ecn) == 1:
             send = net.get('h{}'.format(i))
             disable_ecn_in_bbr2(send)
-    return True
+    return True 
 
 def verifyHost(host):
     # check host string verification 
@@ -287,7 +332,7 @@ if __name__ == '__main__':
     parser.add_argument('-q', dest='qdisc',
                         default='', help='Set AQM (Active Queue Management) policy on the switch 2 (default : netem)')
     parser.add_argument('-c', dest='host',
-                        default='bbr:10ms', help='Set sending host. <example> bbr:10ms  bbr:10ms,cubic:20ms  (default : bbr:10ms)')
+                        default='reno:10ms', help='Set sending host. <example> bbr:10ms  bbr:10ms,cubic:20ms  (default : reno:10ms)')
     parser.add_argument('-e', dest='my_ecn',
                          default=0, help='enable or disable ECN from switch 2 (default: 1)')
     parser.add_argument('-p', dest='loss',
@@ -309,11 +354,7 @@ if __name__ == '__main__':
 
     net.start()
 
-    print ("Enable BBR printk")
-    os.system('dmesg -c > /dev/null')
-    os.system('echo 55534 > /sys/module/tcp_bbr2/parameters/debug_port_mask')
-    os.system('echo 1 > /sys/module/tcp_bbr2/parameters/debug_with_printk')
-
+    enable_mptcp()
     configure_switch(net, 
             delay=arg.delay, 
             limit=limit_packet,
