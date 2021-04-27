@@ -54,7 +54,6 @@ def setup_htb_and_qdisc(aqm_switch, qdisc, netem_switch, rate, delay, limit, los
     aqm_switch.cmd('tc qdisc del dev {}-eth1 ingress'.format(aqm_switch))
     aqm_switch.cmd('tc qdisc del dev {}-ifb0 root'.format(aqm_switch))
     aqm_switch.cmd('tc qdisc del dev {}-ifb0 ingress'.format(aqm_switch))
-
     # create ingress ifb0 on client interface.
     aqm_switch.cmd('tc qdisc add dev {}-eth1 handle ffff: ingress'.format(aqm_switch))
     aqm_switch.cmd('ip link add {}-ifb0 type ifb'.format(aqm_switch))
@@ -65,23 +64,14 @@ def setup_htb_and_qdisc(aqm_switch, qdisc, netem_switch, rate, delay, limit, los
     aqm_switch.cmd('tc filter add dev {}-eth1 parent ffff: protocol all u32 '
                'match u32 0 0 action mirred egress redirect '
                'dev {}-ifb0'.format(aqm_switch,aqm_switch))
-
     # create an egress filter on the IFB device
     aqm_switch.cmd('tc qdisc add dev {}-ifb0 root handle 1: '
                'htb default 11'.format(aqm_switch))
-
     # Add root class HTB with rate limiting 
     aqm_switch.cmd('tc class add dev {}-ifb0 parent 1: classid 1:11 '
                'htb rate {}mbit'.format(aqm_switch,rate))
-
-#aqm_switch.cmd('tc qdisc add dev {}-eth2 root netem delay 10ms'.format(aqm_switch))
-
-    print ('QDISC : {}'.format(qdisc))
-
-#netem_switch.cmd('tc qdisc add dev {}-eth2 root netem delay 10ms'.format(netem_switch))
-#print ('{} QDISC : {}'.format(netem_switch,netem_switch.cmd('tc qdisc show dev {}-eth2'.format(netem_switch))))
-
     
+    print ('QDISC : {}'.format(qdisc))  
     # Add qdisc for bottleneck
     if qdisc != '':
         aqm_switch.cmd('tc qdisc add dev {}-ifb0 parent 1:11 handle 20: {}'.format(aqm_switch, qdisc))
@@ -91,21 +81,6 @@ def setup_htb_and_qdisc(aqm_switch, qdisc, netem_switch, rate, delay, limit, los
             aqm_switch.cmd('tc qdisc add dev {}-ifb0 parent 1:11 handle 20: netem delay {}ms limit {} loss {}%'.format(aqm_switch,delay, limit, loss))
         else :
             aqm_switch.cmd('tc qdisc add dev {}-ifb0 parent 1:11 handle 20: netem delay {}ms limit {}'.format(aqm_switch,delay, limit))
-
-
-    # setup network emulator : delay / limit / loss
-    # in AQM configuration, limit will be set default txqueuelen
-    """
-    command = ''
-    if loss != 0:
-        command = 'tc qdisc add dev {}-eth2 root netem delay {}ms loss {}% limit 1000'.format(netem_switch, delay, loss)
-    else:
-        command = 'tc qdisc add dev {}-eth2 root netem delay {}ms limit 1000'.format(netem_switch, delay, loss)
-
-    print ("command : {}".format(command))
-    netem_switch.cmd(command)
-    """
-
 
 def configure_switch(net, delay=0, limit=1000, rate = 10, loss=0, qdisc='', directory=out_dir):
 
