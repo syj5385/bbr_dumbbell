@@ -155,12 +155,8 @@ def configure_host(net, hostlist, bbr2_ecn, duration=10, interval=0):
 
         send.cmd('ethtool -K {}-eth0 tso off gso off gro off'.format(send))
         recv.cmd('ethtool -K {}-eth0 tso off gso off gro off'.format(recv))
-
-#if cca == 'bbr' or cca == 'bbr2':
-#       	send.cmd('tc qdisc add dev {}-eth0 root fq pacing'.format(send))
-#       else :
         send.cmd('tc qdisc add dev {}-eth0 root netem delay 0.1ms'.format(send))
-
+        
         send.setIP('10.1.0.{}/8'.format(i))
         recv.setIP('10.2.0.{}/8'.format(i))
 
