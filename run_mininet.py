@@ -166,11 +166,9 @@ def configure_host(net, hostlist, bbr2_ecn, duration=10, interval=0):
 
         send.cmd('ip route change 10.0.0.0/8 dev {}-eth0 congctl {}'.format(send,cca))
         recv.cmd('tc qdisc add dev {}-eth0 root netem delay {}'.format(recv,flow_delay))
-#send.cmd('tcpdump -i {}-eth0 -n tcp -w {}/{}.pacp -s 88 &'.format(send, output_dir, send))
 
         if cca == "bbr2":
             send.cmd('dmesg -w | grep {} > {} &'.format(recv.IP(), os.path.join(output_dir, 'bbr2_{}.xls'.format(send.IP()))))
-
 
         print(send.cmd('tc qdisc show dev {}-eth0'.format(send)))
         print ('{} -> ECN : {}'.format(hostlist[i], bbr2_ecn))
@@ -178,12 +176,8 @@ def configure_host(net, hostlist, bbr2_ecn, duration=10, interval=0):
             print (" --> Enable ecn in bbr2 host : {}".format(send)),
             enable_ecn_in_bbr2(send)
 
-#recv.cmd('iperf3 -s -p 10000 &')
-#recv.cmd('./server 10000 {} {} &'.format(os.path.join(output_dir,'{}.goodput'.format(recv)), 200))
         recv.cmd('iperf -s -p 10000 &')
-#send.cmd('iperf -c {} -p 10000 -t {} &'.format(recv.IP(), duration))
         send.cmd('./ss_script.sh {} >> {}.bbr &'.format(0.02, os.path.join(output_dir, send.IP()))) 
-        print ('')
 
     rest_duration=int(duration)
 
